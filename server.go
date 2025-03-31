@@ -9,20 +9,28 @@ import (
 	"time"
 )
 
+const (
+	DefaultHeartbeatTimeout = 40 * time.Second
+)
+
 type Server struct {
 	authFunc  func(clientID, authCode string) bool
 	handlers  *HandlerRegistry
 	clients   map[string]*Connection
+	lastPing  map[string]time.Time
 	clientsMu sync.RWMutex
 }
 
 // NewServer creates a new RPC server with address and authentication function.
 func NewServer(authFunc func(clientID, authCode string) bool) *Server {
-	return &Server{
+	s := &Server{
 		authFunc: authFunc,
 		handlers: NewHandlerRegistry(),
 		clients:  make(map[string]*Connection),
+		lastPing: make(map[string]time.Time),
 	}
+	s.RegisterHandler("Ping", s.handlePing)
+	return s
 }
 
 // RegisterHandler registers an RPC handler.
@@ -55,6 +63,9 @@ func (s *Server) ServeConn(conn net.Conn) {
 		conn.Close()
 		return
 	}
+
+	c.clientID = negMsg.ClientID
+	s.lastPing[negMsg.ClientID] = time.Now()
 
 	// Send AuthOK (without compression yet)
 	resp := NegotiationMessage{
@@ -97,15 +108,40 @@ func (s *Server) ServeConn(conn net.Conn) {
 		log.Println("[server] disconnected:", negMsg.ClientID)
 		s.clientsMu.Lock()
 		delete(s.clients, negMsg.ClientID)
+		delete(s.lastPing, negMsg.ClientID)
 		s.clientsMu.Unlock()
 	}()
 }
 
+// handlePing updates the lastPing time and replies with "pong".
+func (s *Server) handlePing(ctx *Context) {
+	clientID := ctx.ClientID()
+	s.clientsMu.Lock()
+	s.lastPing[clientID] = time.Now()
+	s.clientsMu.Unlock()
+	ctx.WriteResponse("pong")
+}
+
 // GetClientByID returns the active connection for a given client.
+// If the last ping is too old, the client is considered inactive.
 func (s *Server) GetClientByID(clientID string) *Connection {
-	s.clientsMu.RLock()
-	defer s.clientsMu.RUnlock()
-	return s.clients[clientID]
+	s.clientsMu.Lock()
+	defer s.clientsMu.Unlock()
+
+	conn, ok := s.clients[clientID]
+	if !ok {
+		return nil
+	}
+
+	lastPing, ok := s.lastPing[clientID]
+	if !ok || time.Since(lastPing) > DefaultHeartbeatTimeout {
+		log.Printf("[server] client %s considered inactive (last ping > %v)", clientID, DefaultHeartbeatTimeout)
+		delete(s.clients, clientID)
+		delete(s.lastPing, clientID)
+		return nil
+	}
+
+	return conn
 }
 
 // Call sends a blocking RPC call to a client.
@@ -179,6 +215,5 @@ func (s *Server) ServeTLS(addr string, tlsConfig *tls.Config) error {
 			go s.ServeConn(conn)
 		}
 	}()
-
 	return nil
 }

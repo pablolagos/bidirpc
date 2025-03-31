@@ -1,75 +1,60 @@
 package bidirpc
 
-import "strconv"
-
-// Context provides helper methods to access RPC request parameters and send responses.
 type Context struct {
-	params    map[string]any
-	conn      *Connection
-	requestID string
+	conn     *Connection
+	clientID string
+	id       string
+	params   map[string]any
 }
 
-// GetParamString returns the string parameter for the given name, or def if not present.
+// ClientID returns the ID of the client that sent the current request.
+func (ctx *Context) ClientID() string {
+	return ctx.clientID
+}
+
+// GetParamString retrieves a string parameter with default value.
 func (ctx *Context) GetParamString(name, def string) string {
-	if val, ok := ctx.params[name]; ok {
-		if s, ok := val.(string); ok {
-			return s
-		}
+	val, ok := ctx.params[name]
+	if !ok {
+		return def
 	}
-	return def
+	str, ok := val.(string)
+	if !ok {
+		return def
+	}
+	return str
 }
 
-// GetParamInt returns the integer parameter for the given name, or def if not present.
+// GetParamInt retrieves an int parameter with default value.
 func (ctx *Context) GetParamInt(name string, def int) int {
-	if val, ok := ctx.params[name]; ok {
-		switch v := val.(type) {
-		case float64:
-			return int(v)
-		case int:
-			return v
-		case string:
-			if i, err := strconv.Atoi(v); err == nil {
-				return i
-			}
-		}
+	val, ok := ctx.params[name]
+	if !ok {
+		return def
 	}
-	return def
+	f, ok := val.(float64) // JSON numbers are float64
+	if !ok {
+		return def
+	}
+	return int(f)
 }
 
-// GetParamFloat returns the float parameter for the given name, or def if not present.
-func (ctx *Context) GetParamFloat(name string, def float64) float64 {
-	if val, ok := ctx.params[name]; ok {
-		switch v := val.(type) {
-		case float64:
-			return v
-		case int:
-			return float64(v)
-		case string:
-			if f, err := strconv.ParseFloat(v, 64); err == nil {
-				return f
-			}
-		}
-	}
-	return def
-}
-
-// WriteResponse sends a successful RPC response with the provided result.
-func (ctx *Context) WriteResponse(response any) {
+// WriteResponse sends a successful response back to the caller.
+func (ctx *Context) WriteResponse(result any) {
 	msg := RPCMessage{
 		Type:   ResponseType,
-		ID:     ctx.requestID,
-		Result: response,
+		ID:     ctx.id,
+		Result: result,
 	}
-	ctx.conn.Send(msg)
+	_ = ctx.conn.Send(msg)
 }
 
-// WriteError sends an RPC error response with the given code and message.
+// WriteError sends an error response back to the caller.
 func (ctx *Context) WriteError(code int, message string) {
 	msg := RPCMessage{
 		Type:      ResponseType,
-		ID:        ctx.requestID,
+		ID:        ctx.id,
 		Error:     &message,
 		ErrorCode: code,
 	}
-	ctx.conn.Send(msg)
+	_ = ctx.conn.Send(msg)
 }

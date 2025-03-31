@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const DefaultHeartbeatInterval = 30 * time.Second
+
 type AutoClient struct {
 	addr           string
 	clientID       string
@@ -164,6 +166,8 @@ func (ac *AutoClient) connectOnce() error {
 		ac.onReady(c)
 	}
 
+	ac.startHeartbeat(DefaultHeartbeatInterval)
+
 	return nil
 }
 
@@ -208,4 +212,31 @@ func (ac *AutoClient) CallAsyncWithResult(method string, params map[string]any, 
 // IsConnected returns true if a connection is active.
 func (ac *AutoClient) IsConnected() bool {
 	return ac.activeConn.Load() != nil
+}
+
+func (ac *AutoClient) startHeartbeat(interval time.Duration) {
+	go func() {
+		for {
+			select {
+			case <-ac.stopChan:
+				return
+			case <-time.After(interval):
+				value := ac.activeConn.Load()
+				if value == nil {
+					continue
+				}
+				conn := value.(*Connection)
+
+				var pong string
+				err := conn.CallWithResult("Ping", nil, 5*time.Second, &pong)
+				if err != nil {
+					log.Println("[heartbeat] failed:", err)
+
+					// Close the connection to trigger reconnection
+					conn.Conn.Close()
+					ac.activeConn.Store(nil)
+				}
+			}
+		}
+	}()
 }

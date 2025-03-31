@@ -24,6 +24,7 @@ type Connection struct {
 	pending        map[string]chan RPCMessage
 	pendingMu      sync.Mutex
 	handlers       *HandlerRegistry
+	clientID       string
 }
 
 func NewConnection(conn net.Conn) *Connection {
@@ -124,8 +125,21 @@ func (c *Connection) handleMessage(msg RPCMessage) {
 			delete(c.pending, msg.ID)
 		}
 		c.pendingMu.Unlock()
+
 	case RequestType:
-		go c.handlers.Handle(c, msg)
+		ctx := &Context{
+			conn:     c,
+			clientID: c.clientID,
+			id:       msg.ID,
+			params:   msg.Params,
+		}
+		fn := c.handlers.Get(msg.Method)
+		if fn != nil {
+			go fn(ctx)
+		} else {
+			ctx.WriteError(404, "method not found")
+		}
+
 	default:
 		log.Println("[conn] unknown message type:", msg.Type)
 	}

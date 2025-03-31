@@ -1,9 +1,14 @@
 package bidirpc
 
+import (
+	"sync"
+)
+
 type HandlerFunc func(ctx *Context)
 
 type HandlerRegistry struct {
 	handlers map[string]HandlerFunc
+	mu       sync.RWMutex
 }
 
 func NewHandlerRegistry() *HandlerRegistry {
@@ -12,12 +17,12 @@ func NewHandlerRegistry() *HandlerRegistry {
 	}
 }
 
-func (r *HandlerRegistry) Register(method string, fn HandlerFunc) {
-	r.handlers[method] = fn
+func (hr *HandlerRegistry) Register(method string, fn HandlerFunc) {
+	hr.handlers[method] = fn
 }
 
-func (r *HandlerRegistry) Handle(conn *Connection, msg RPCMessage) {
-	fn, ok := r.handlers[msg.Method]
+func (hr *HandlerRegistry) Handle(conn *Connection, msg RPCMessage) {
+	fn, ok := hr.handlers[msg.Method]
 	if !ok {
 		conn.Send(RPCMessage{
 			Type:      ResponseType,
@@ -29,13 +34,28 @@ func (r *HandlerRegistry) Handle(conn *Connection, msg RPCMessage) {
 	}
 
 	ctx := &Context{
-		conn:      conn,
-		requestID: msg.ID,
-		params:    msg.Params,
+		conn:   conn,
+		id:     msg.ID,
+		params: msg.Params,
 	}
 	fn(ctx)
 }
 
+func (r *HandlerRegistry) HandleWithContext(ctx *Context, method string) {
+	fn := r.Get(method)
+	if fn != nil {
+		fn(ctx)
+	} else {
+		ctx.WriteError(404, "method not found")
+	}
+}
+
 func strPtr(s string) *string {
 	return &s
+}
+
+func (hr *HandlerRegistry) Get(method string) HandlerFunc {
+	hr.mu.RLock()
+	defer hr.mu.RUnlock()
+	return hr.handlers[method]
 }

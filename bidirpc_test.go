@@ -81,7 +81,7 @@ func (s *BidiRPCServerSuite) startClient() *bidirpc.AutoClient {
 		ctx.WriteResponse(result)
 	})
 
-	s.T().Log("[client] starting client")
+	log.Println("[client] starting client")
 	err := client.Start()
 	require.NoError(s.T(), err, "client.Start")
 

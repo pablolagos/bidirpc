@@ -2,7 +2,9 @@
 
 **Reliable two-way RPC for modern Go applications.**
 
-**bidirpc** lets you build real-time, two-way communication between servers and clients over persistent TCP connections—securely and efficiently. With built-in support for TLS, optional gzip compression, and seamless reconnection, both sides can register and call remote functions as if they were local. Whether you're building dashboards, remote control systems, messaging backends, or IoT communication, `bidirpc` gives you a clean and powerful foundation. It supports TLS, gzip compression, automatic reconnection, and lets both sides register and call functions. It’s perfect for building realtime backend systems, control panels, IoT communication, and more.
+**bidirpc** lets you build real-time, two-way communication between servers and clients over persistent TCP connections—securely and efficiently. With built-in support for TLS, optional gzip compression, and seamless reconnection, both sides can register and call remote functions as if they were local.
+
+Whether you're building dashboards, remote control systems, messaging backends, or IoT communication, `bidirpc` gives you a clean and powerful foundation.
 
 ---
 
@@ -15,6 +17,8 @@
 - Optional gzip compression
 - Built-in context helpers for handlers
 - Multi-client server support with clientID routing
+- Explicit context structure for robust handler design
+- Keep-alive system with heartbeat and timeout detection
 
 ---
 
@@ -36,6 +40,8 @@ go get github.com/pablolagos/bidirpc
 4. From that point, both client and server can call each other’s functions.
 
 Connections remain open, allowing low-latency communication.
+
+Clients also send periodic heartbeat pings. If the server doesn't receive a ping in 40 seconds, it marks the client as disconnected.
 
 ---
 
@@ -107,7 +113,10 @@ ctx.GetParamString("key", "default")
 ctx.GetParamInt("key", 0)
 ctx.WriteResponse(data)
 ctx.WriteError(400, "error")
+ctx.ClientID() // get clientID of the requester
 ```
+
+The context contains the request parameters and request ID explicitly, making the design clear and bug-resistant.
 
 ---
 
@@ -120,9 +129,11 @@ ctx.WriteError(400, "error")
 
 ---
 
-## 🔄 Auto-Reconnect
+## 🔄 Auto-Reconnect & Keep-Alive
 
 Clients reconnect automatically with exponential backoff (up to 3 minutes).
+
+Clients also send `Ping` requests every 30 seconds. The server stores the last time each client pinged. If no ping is received within 40 seconds, the client is considered inactive and removed from the active connection list.
 
 ---
 
